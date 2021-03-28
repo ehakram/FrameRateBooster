@@ -40,10 +40,12 @@ Asset is governed by the Asset Store EULA.
 
 Contact & Support
 =================
-If you have any questions, feedback or requests, please write to admin@curvyeditor.com
+If you have any questions, feedback or requests, please write to admin@toolbuddy.net
 
 VERSION HISTORY
 ===============
+1.2.1
+	Fixed compatibility issue with Multiplayer HLAPI package.
 1.2.0
 	FRB can now be run on IL2CPP builds
 	Optimize now return the number of optimized methods
