@@ -309,7 +309,7 @@ public class FrbTester : MonoBehaviour
 
             string resultsFilePath = "./Assets/results.txt";
             File.WriteAllText(resultsFilePath, results);
-            UnityEngine.Debug.Log("results saved as " + statsFilePath);
+            UnityEngine.Debug.Log("results saved as " + resultsFilePath);
 
             Application.Quit();
         }
