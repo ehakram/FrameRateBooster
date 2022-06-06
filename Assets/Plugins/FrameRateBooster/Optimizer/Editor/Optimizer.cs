@@ -1,4 +1,10 @@
-﻿using System;
+﻿#if UNITY_2021_1_OR_NEWER
+#define USE_IPOSTBUILDPLAYERSCRIPTDLLS
+#elif UNITY_2019_3_OR_NEWER
+#define USE_IIL2CPPPROCESSOR
+#endif
+
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -7,9 +13,11 @@ using Mono.Cecil;
 using Mono.Cecil.Cil;
 using UnityEditor;
 using UnityEditor.Callbacks;
-#if UNITY_2019_3_OR_NEWER
+#if USE_IPOSTBUILDPLAYERSCRIPTDLLS  || USE_IIL2CPPPROCESSOR
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
+#endif
+#if USE_IIL2CPPPROCESSOR
 using UnityEditor.Il2Cpp;
 #endif
 using Debug = UnityEngine.Debug;
@@ -18,20 +26,45 @@ namespace ToolBuddy.FrameRateBooster.Optimizer
 {
 
     public class Optimizer
-#if UNITY_2019_3_OR_NEWER
+#if USE_IPOSTBUILDPLAYERSCRIPTDLLS
+        : IPostBuildPlayerScriptDLLs
+#elif USE_IIL2CPPPROCESSOR
         : IIl2CppProcessor
 #endif
     {
-#region Unity callbacks
-
-#if UNITY_2019_3_OR_NEWER
+        #region Unity callbacks
+#if USE_IPOSTBUILDPLAYERSCRIPTDLLS
         public int callbackOrder { get; }
 
+        public void OnPostBuildPlayerScriptDLLs(BuildReport report)
+        {
+            if (PlayerSettings.GetScriptingBackend(report.summary.platformGroup) == ScriptingImplementation.IL2CPP)
+            {
+                string pathToBuiltProject = report.files.FirstOrDefault(r => r.path.Contains("StagingArea")).path;
+
+                if (string.IsNullOrEmpty(pathToBuiltProject) == false)
+                {
+                    //Enabling the code line bellow will run the optimization in this case, but builds fail at linking step, and I don't know why, so I am ignoring the optimization.
+                    //OptimizeBuild(report.summary.platform, Path.GetDirectoryName(Path.GetFullPath(pathToBuiltProject)));
+                    Debug.LogWarning("[Frame Rate Booster] FRB can modify IL2CPP builds only on Unity versions between 2019.3 and 2020.3 inclusive.");
+                }
+                else
+                {
+                    Debug.LogWarning("[Frame Rate Booster] Could not find path for StagingArea");
+                }
+
+                Debug.LogWarning("[Frame Rate Booster] Using FRB on IL2CPP can make builds slower. More details at this link: https://forum.curvyeditor.com/thread-861.html");
+            }
+        }
+
+#elif USE_IIL2CPPPROCESSOR
+        public int callbackOrder { get; }
+        
         public void OnBeforeConvertRun(BuildReport report, Il2CppBuildPipelineData data)
         {
             Debug.LogWarning("[Frame Rate Booster] Using FRB on IL2CPP can make builds slower. More details at this link: https://forum.curvyeditor.com/thread-861.html");
 
-            OptimizeBuild(report.summary.platform, data.inputDirectory);
+            OptimizeBuild(report.summary.platform, Path.GetDirectoryName(Path.GetFullPath(data.inputDirectory)));
         }
 #endif
 
@@ -40,17 +73,17 @@ namespace ToolBuddy.FrameRateBooster.Optimizer
         {
             if (PlayerSettings.GetScriptingBackend(BuildPipeline.GetBuildTargetGroup(target)) == ScriptingImplementation.IL2CPP)
             {
-#if UNITY_2019_3_OR_NEWER == false
-                Debug.LogWarning("[Frame Rate Booster] FRB can modify IL2CPP builds only on Unity 2019.3 and above.");
+#if USE_IIL2CPPPROCESSOR == false && USE_IPOSTBUILDPLAYERSCRIPTDLLS == false
+                Debug.LogWarning("[Frame Rate Booster] FRB can modify IL2CPP builds only on Unity versions between 2019.3 and 2020.3 inclusive.");
                 Debug.LogWarning("[Frame Rate Booster] Using FRB on IL2CPP can make builds slower. More details at this link: https://forum.curvyeditor.com/thread-861.html");
 #endif
                 return;
             }
-            OptimizeBuild(target, pathToBuiltProject);
+            OptimizeBuild(target, Path.GetDirectoryName(Path.GetFullPath(pathToBuiltProject)));
         }
-#endregion
+        #endregion
 
-        private static void OptimizeBuild(BuildTarget target, string pathToBuiltProject)
+        private static void OptimizeBuild(BuildTarget target, string buildDirectoryPath)
         {
             if (target == BuildTarget.Android)
             {
@@ -75,9 +108,7 @@ namespace ToolBuddy.FrameRateBooster.Optimizer
             Stopwatch stopWatch = new Stopwatch();
             stopWatch.Start();
 
-            string buildDirectory = Path.GetDirectoryName(Path.GetFullPath(pathToBuiltProject));
-
-            string[] allAssembliesPaths = Directory.GetFiles(buildDirectory, "*.dll", SearchOption.AllDirectories);
+            string[] allAssembliesPaths = Directory.GetFiles(buildDirectoryPath, "*.dll", SearchOption.AllDirectories);
 
             string optimizationsAssemblyPath;
             {
@@ -85,14 +116,14 @@ namespace ToolBuddy.FrameRateBooster.Optimizer
                     ? "FrameRateBooster.Optimizations.dll"
                     : "Assembly-CSharp-firstpass.dll";
 
-                if (GetUniqueTargetAssembly(optimizationsAssemblyName, allAssembliesPaths, buildDirectory,
+                if (GetUniqueTargetAssembly(optimizationsAssemblyName, allAssembliesPaths, buildDirectoryPath,
                     "the assembly containing the optimizations", out optimizationsAssemblyPath) == false)
                     return;
             }
 
             string targetAssemblyPath;
             {
-                if (GetUniqueTargetAssembly(targetAssemblyName, allAssembliesPaths, buildDirectory, "the assembly to optimize",
+                if (GetUniqueTargetAssembly(targetAssemblyName, allAssembliesPaths, buildDirectoryPath, "the assembly to optimize",
                     out targetAssemblyPath) == false)
                     return;
             }
@@ -116,7 +147,7 @@ namespace ToolBuddy.FrameRateBooster.Optimizer
                     break;
                 case 0:
                     targetAssemblyPath = null;
-                        Debug.LogError(String.Format("[Frame Rate Booster] Couldn't locate recursively {2} {0} in the build folder {1}", targetAssemblyName, buildDirectory, assemblyDescription));
+                    Debug.LogError(String.Format("[Frame Rate Booster] Couldn't locate recursively {2} {0} in the build folder {1}", targetAssemblyName, buildDirectory, assemblyDescription));
                     return false;
                 default:
                     targetAssemblyPath = null;
@@ -142,9 +173,9 @@ namespace ToolBuddy.FrameRateBooster.Optimizer
 
             int optimizedMethodsCount = 0;
 
-            using (ModuleDefinition optimizedModuleDefinition = ModuleDefinition.ReadModule(optimizationsAssemblyPath, new ReaderParameters() {ReadWrite = trimOptimizationsAssembly}))
+            using (ModuleDefinition optimizedModuleDefinition = ModuleDefinition.ReadModule(optimizationsAssemblyPath, new ReaderParameters() { ReadWrite = trimOptimizationsAssembly }))
             {
-                using (ModuleDefinition originalModule = ModuleDefinition.ReadModule(targetAssemblyPath, new ReaderParameters() {ReadWrite = true}))
+                using (ModuleDefinition originalModule = ModuleDefinition.ReadModule(targetAssemblyPath, new ReaderParameters() { ReadWrite = true }))
                 {
                     foreach (TypeDefinition optimizedType in optimizedModuleDefinition.Types)
                     {
@@ -202,7 +233,7 @@ namespace ToolBuddy.FrameRateBooster.Optimizer
 
                     if (optimizedMethodsCount == 0)
                         Debug.LogError("[Frame Rate Booster] Couldn't find any method to optimize. This is not supposed to happen. Please report that to the asset creator.");
-                    
+
                     originalModule.Write();
                 }
 
@@ -245,5 +276,6 @@ namespace ToolBuddy.FrameRateBooster.Optimizer
         {
             return originalModule.Types.SingleOrDefault(t => t.Name == optimizedType.Name && t.Namespace == originalNameSpace);
         }
+
     }
 }
