@@ -47,6 +47,7 @@ VERSION HISTORY
 1.3.0
 	Fixed build with Unity versions 2021 or newer
 	The OptimizeBuild method now takes as an input the path to build directory instead of the path to a file in that directory
+	Changed folders hierarchy (to unify it with other ToolBuddy assets)
 1.2.1
 	Fixed compatibility issue with Multiplayer HLAPI package.
 1.2.0
